@@ -101,7 +101,8 @@ const JOIN_ROOM_TIMEOUT: Duration = Duration::from_secs(120);
 
 use crate::{
     config::ServerBuffer,
-    connection::{Connection, InteractiveAuthInfo},
+    connection::Connection,
+    connection::InteractiveAuthInfo,
     room::RoomHandle,
     verification_buffer::VerificationBuffer,
     ConfigHandle, Servers, PLUGIN_NAME,
@@ -168,6 +169,7 @@ pub struct ServerSettings {
     pub refresh_token: String,
     pub device_id: String,
     pub ssl_verify: bool,
+    pub use_sso: bool,
 }
 
 impl Default for ServerSettings {
@@ -182,6 +184,7 @@ impl Default for ServerSettings {
             access_token: "".to_owned(),
             refresh_token: "".to_owned(),
             device_id: "".to_owned(),
+            use_sso: false,
         }
     }
 }
@@ -326,6 +329,16 @@ impl MatrixServer {
             ));
 
             return Ok(());
+        }
+
+        // If SSO is enabled, clear old session data to avoid device ID conflicts
+        if self.use_sso() {
+            if let Err(e) = self.clear_session_data() {
+                self.print_error(&format!(
+                    "Warning: Failed to clear session data for SSO: {}",
+                    e
+                ));
+            }
         }
 
         let client = self.get_or_create_client()?;
@@ -641,6 +654,7 @@ impl MatrixServer {
             .expect("Can't create device id option");
 
         let server = server_copy;
+        let server_copy = server.clone();
 
         let ssl_verify =
             BooleanOptionSettings::new(format!("{}.ssl_verify", server_name))
@@ -657,7 +671,27 @@ impl MatrixServer {
 
         server_section
             .new_boolean_option(ssl_verify)
-            .expect("Can't create autoconnect option");
+            .expect("Can't create ssl_verify option");
+
+        let server = server_copy;
+
+        let use_sso =
+            BooleanOptionSettings::new(format!("{}.sso", server_name))
+                .description("Force SSO login even if username/password are set")
+                .default_value(false)
+                .set_change_callback(move |_, option| {
+                    let value = option.value();
+
+                    let server_ref = server.upgrade().expect(
+                        "Server got deleted while server config is alive",
+                    );
+
+                    server_ref.settings.borrow_mut().use_sso = value;
+                });
+
+        server_section
+            .new_boolean_option(use_sso)
+            .expect("Can't create sso option");
     }
 }
 
@@ -787,6 +821,7 @@ impl Drop for MatrixServer {
                 "refresh_token",
                 "device_id",
                 "proxy",
+                "sso",
                 "ssl_verify",
                 "username",
             ] {
@@ -803,6 +838,18 @@ impl Drop for MatrixServer {
 impl InnerServer {
     pub fn name(&self) -> &str {
         &self.server_name
+    }
+
+    pub fn use_sso(&self) -> bool {
+        self.settings.borrow().use_sso
+    }
+
+    pub fn clear_session_data(&self) -> std::io::Result<()> {
+        let path = self.get_server_path();
+        if path.exists() {
+            std::fs::remove_dir_all(&path)?;
+        }
+        Ok(())
     }
 
     pub fn rooms(&self) -> Vec<RoomHandle> {
@@ -1530,13 +1577,19 @@ impl InnerServer {
         })?;
 
         let mut client_builder = Client::builder()
-            .homeserver_url(homeserver)
+            .homeserver_url(homeserver);
+        
+        // For SSO, don't use sqlite_store initially to avoid device ID mismatch
+        // The crypto identity is created at client build time, before login
+        if !settings.use_sso {
+            client_builder = client_builder
             .handle_refresh_tokens()
             .sqlite_store_with_cache_path(
                 self.get_server_path(),
                 self.get_server_cache_path(),
                 Some("DEFAULT_PASSPHRASE"),
             );
+        }
 
         if let Some(proxy) = settings.proxy.as_ref() {
             client_builder = client_builder.proxy(proxy);
@@ -1657,7 +1710,7 @@ impl InnerServer {
             }
         } else {
             self.print_error("Can't export E2EE keys while disconnected");
-        }
+            }
     }
 
     pub async fn import_keys(&self, file: PathBuf, passphrase: String) {

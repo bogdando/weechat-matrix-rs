@@ -82,6 +82,7 @@ Use /matrix [command] help to find out more.\n",
             .add_completion("connect %(matrix_servers)")
             .add_completion("disconnect %(matrix_servers)")
             .add_completion("reconnect %(matrix_servers)")
+            .add_completion("join %(matrix_servers)")
             .add_completion("sso-complete %(matrix_servers)")
             .add_completion(
                 "help server|connect|disconnect|reconnect|join|sso-complete|read|version|keys|devices|media|verify|verification",

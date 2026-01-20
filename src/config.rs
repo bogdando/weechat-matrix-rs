@@ -281,25 +281,25 @@ impl ConfigHandle {
 
             #[cfg(not(weechat410))]
             {
-                let settings = EnumOptionSettings::new("server_buffer")
-                    .description("Should the server buffer be merged with other buffers or independent")
-                    .set_change_callback(move |_, _| {
-                        for server in servers.borrow().values() {
-                            server.merge_server_buffers();
-                        }
-                    })
-                    .default_value(ServerBuffer::default() as i32)
-                    .string_values(
-                        ServerBuffer::VARIANTS
-                            .iter()
-                            .map(|v| v.to_string())
-                            .collect::<Vec<String>>(),
-                    );
+            let settings = EnumOptionSettings::new("server_buffer")
+                .description("Should the server buffer be merged with other buffers or independent")
+                .set_change_callback(move |_, _| {
+                    for server in servers.borrow().values() {
+                        server.merge_server_buffers();
+                    }
+                })
+                .default_value(ServerBuffer::default() as i32)
+                .string_values(
+                    ServerBuffer::VARIANTS
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<String>>(),
+                );
 
-                look_section
-                    .new_enum_option(settings)
-                    .expect("Can't create server buffers option");
-            }
+            look_section
+                .new_enum_option(settings)
+                .expect("Can't create server buffers option");
+        }
         }
 
         config

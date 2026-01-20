@@ -325,12 +325,13 @@ impl Connection {
         mut server_path: PathBuf,
         response: &LoginResponse,
     ) -> std::io::Result<()> {
+        std::fs::create_dir_all(&server_path)?;
         server_path.push(user_name);
         server_path.set_extension("device_id");
         std::fs::write(&server_path, &response.device_id)
     }
 
-    fn load_device_id(
+    pub fn load_device_id(
         user_name: &str,
         mut server_path: PathBuf,
     ) -> std::io::Result<Option<String>> {
@@ -517,8 +518,6 @@ impl Connection {
 
             let device_id = match device_id {
                 Err(e) => {
-                    // TODO: do we want to do something with channel.send()
-                    // errors?
                     let _ = channel
                         .send(Err(format!(
                         "Error while reading the device id for server {}: {:?}",
@@ -536,21 +535,22 @@ impl Connection {
             let login_response = if password.is_empty() {
                 let login_types = match matrix_auth.get_login_types().await {
                     Ok(response) => response,
-                    Err(e) => {
-                        let _ = channel
-                            .send(Err(format!(
+                Err(e) => {
+                    let _ = channel
+                        .send(Err(format!(
                                 "Failed to get login types: {}",
                                 e
-                            )))
-                            .await;
-                        return;
-                    }
-                };
+                        )))
+                        .await;
+                    return;
+                }
+            };
 
-                let has_sso = login_types
-                    .flows
-                    .iter()
-                    .any(|flow| matches!(flow, LoginType::Sso(_)));
+            // Check if SSO is available
+            let has_sso = login_types
+                .flows
+                .iter()
+                .any(|flow| matches!(flow, LoginType::Sso(_)));
 
                 if !has_sso {
                     let _ = channel
@@ -569,8 +569,6 @@ impl Connection {
                             let _ = url_sender
                                 .send(Ok(ClientMessage::SsoLoginUrl(sso_url)))
                                 .await;
-                            // Handing the URL to WeeChat successfully completes
-                            // our callback; returning an error would abort SSO.
                             Ok(())
                         }
                     })
@@ -609,7 +607,8 @@ impl Connection {
                             .send(Err(format!(
                             "Error while writing the device id for server {}: {:?}",
                             server_name, e
-                        ))).await;
+                                )))
+                                .await;
                         return;
                     }
 
@@ -669,12 +668,12 @@ impl Connection {
                                             tokens,
                                         ),
                                     ))
-                                    .await
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
                             Ok(SessionChange::UnknownToken { .. }) => {}
                             Err(
                                 tokio::sync::broadcast::error::RecvError::Lagged(
@@ -690,8 +689,8 @@ impl Connection {
                             ) => return,
                         }
                     }
-                }
             }
+        }
         });
 
         let filter = client
@@ -732,38 +731,38 @@ impl Connection {
                         State::Before(state) | State::After(state) => state,
                     };
 
-                    for event in
+                        for event in
                         state_events.iter().filter_map(|e| e.deserialize().ok())
-                    {
-                        if let AnySyncStateEvent::RoomMember(m) = event {
-                            let change = room
-                                .ambiguity_changes
-                                .get(m.event_id())
-                                .cloned();
+                        {
+                            if let AnySyncStateEvent::RoomMember(m) = event {
+                                let change = room
+                                    .ambiguity_changes
+                                    .get(m.event_id())
+                                    .cloned();
 
-                            if sync_channel
-                                .send(Ok(ClientMessage::MemberEvent(
+                                if sync_channel
+                                    .send(Ok(ClientMessage::MemberEvent(
+                                        room_id.clone(),
+                                        m,
+                                        true,
+                                        change,
+                                    )))
+                                    .await
+                                    .is_err()
+                                {
+                                    return LoopCtrl::Break;
+                                }
+                            } else if sync_channel
+                                .send(Ok(ClientMessage::SyncState(
                                     room_id.clone(),
-                                    m,
-                                    true,
-                                    change,
+                                    event,
                                 )))
                                 .await
                                 .is_err()
                             {
                                 return LoopCtrl::Break;
                             }
-                        } else if sync_channel
-                            .send(Ok(ClientMessage::SyncState(
-                                room_id.clone(),
-                                event,
-                            )))
-                            .await
-                            .is_err()
-                        {
-                            return LoopCtrl::Break;
                         }
-                    }
 
                     for event in room
                         .timeline
