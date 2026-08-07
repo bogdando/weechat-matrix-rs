@@ -123,9 +123,9 @@ impl Servers {
 
             for room in server.rooms() {
                 if room.owns_buffer(buffer) {
-                        return BufferOwner::Room(server.clone(), room);
-                    }
+                    return BufferOwner::Room(server.clone(), room);
                 }
+            }
 
             for verification in server.verifications() {
                 if let Ok(b) = verification.buffer().upgrade() {

@@ -101,8 +101,7 @@ const JOIN_ROOM_TIMEOUT: Duration = Duration::from_secs(120);
 
 use crate::{
     config::ServerBuffer,
-    connection::Connection,
-    connection::InteractiveAuthInfo,
+    connection::{Connection, InteractiveAuthInfo},
     room::RoomHandle,
     verification_buffer::VerificationBuffer,
     ConfigHandle, Servers, PLUGIN_NAME,
@@ -1710,7 +1709,7 @@ impl InnerServer {
             }
         } else {
             self.print_error("Can't export E2EE keys while disconnected");
-            }
+        }
     }
 
     pub async fn import_keys(&self, file: PathBuf, passphrase: String) {
